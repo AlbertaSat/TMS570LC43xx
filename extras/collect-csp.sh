@@ -1,0 +1,32 @@
+zip -r csp-extras.zip \
+include/csp \
+source/arch \
+source/crypto \
+source/drivers \
+source/interfaces \
+source/rtable \
+source/transport \
+source/csp_bridge.c \
+source/csp_buffer.c \
+source/csp_conn.c \
+source/csp_conn.h \
+source/csp_crc32.c \
+source/csp_debug.c \
+source/csp_dedup.c \
+source/csp_dedup.h \
+source/csp_endian.c \
+source/csp_iflist.c \
+source/csp_io.c \
+source/csp_io.h \
+source/csp_port.c \
+source/csp_port.h \
+source/csp_promisc.c \
+source/csp_promisc.h \
+source/csp_qfifo.c \
+source/csp_qfifo.h \
+source/csp_route.c \
+source/csp_route.h \
+source/csp_service_handler.c \
+source/csp_services.c \
+source/csp_sfp.c \
+

@@ -1,0 +1,309 @@
+    Building the base environment for the 
+        TI TMS570LC43xx development kit
+            H. James Hoover
+            Version 2.0
+            2020-03-04
+
+☻ Alberta Sat github
+    https://github.com/AlbertaSat
+
+☻ NOTE Email Rooney 2020-02-20
+
+Another note - HalCOGen should have freeRTOS configured properly in
+the .hcg file included in the repo, BUT if you go in and make any
+changes, all the HalCoGen files will be rebuilt. This is mostly fine
+except that every time you rebuild, you will have to go by hand and
+change the value of "configUSE_STATS_FORMATTING_FUNCTIONS" in
+FreeRTOS.h to 1 - otherwise it won't build.
+
+☻ Working with a TMS570LC43xx development kit.  Cortex R5
+    TMS570 is big Endian
+
+☻ Online documentation for CCS
+    https://www.ti.com/tool/CCSTUDIO
+Compiler version is Ti 18.12.5LTS
+home page: http://downloads.ti.com/docs/esd/SPNU151R/
+pdf: http://www.ti.com/litv/SPNU151R
+
+☻ Setting up the r5 build environment:
+
+So I started a fresh project via Halcogen, with processor selection:
+    TMS570LC4357WT_FREERTOS
+
+Then I started CCS (v9):
+    - added the project include directory to the compiler path - or it would 
+    not build.
+    - excluded extras from build so it would not go into that tree 
+    - set device to TMS570LC43xx with Ti XDS100v2 USB Debug interface
+
+    Set Project / Properties / Debug 
+        - flash settings are for 
+            Fast Verify
+            Erase necessary sectors only
+
+☻ Renaming an existing project
+
+Select the project in the project explorer panel.  
+Make sure the project is open.  
+Then select File / Rename.
+
+☻ Using different .hcg and .dil Halcogen files
+
+Copy the .hcg and .dil files to the new names.  In Halcogen open them
+up as the new project. Generate code, save project.
+
+☻ Git and Halcogen notes.  Since Halcogen runs under Win10, it generates
+code with CR-LF end of line, and puts on spurious x permission.  This
+will cause git to detect spurious differences.  So after running and
+exiting Halcogen, use the 
+    post-halcogen.sh
+to fix the line endings and file permissions
+
+☻ source/applic.c, include/applic.c
+
+Added applic.c to decouple application from HL_sys_main.c which is
+regenerated every time you do a generate files with Halcogen.
+Rather than clutter it up with USER CODE sections, the main simply calls
+    void applic(void)
+and then we can have various test applications.  See extras/applic-archive
+Note that some applications will need different versions of the HL_
+hardware application layer, so this should be mentioned in applic.c
+
+☻ SCI serial notes
+
+Need to set the proper pin mux values for SCI3 by selecting SCI3 enable 
+in Halcogen perhipherals PINMUX page at top.  This will set the proper
+links in the N2 and W3 lines later in the page.
+
+sciSendByte does polling, and so seems to work cross tasks.  sciSend
+has interrupt or polling, but can't seem to put into polling mode, so
+needs to have guards on calls.
+
+☻ CAN bus notes
+
+TMS570LC43_SCHEMATICS_REVE.pdf
+R5 board - the can bus connections are terminated already, see page 20
+of the schematic.
+
+Each node on the network needs a unique ID, because that is how 
+collisions on the bus are arbitrated.  If two messages hit the bus 
+simultaneously, the first point in the ID where the bits differ cause
+the arbitration.  The message with the 0 bit wins.
+
+NOTE: A node should be able to send messages with different IDs, eg low
+and high priority, so long as message IDs are distinct among all the nodes
+on the bus.  You have to interleave the IDs so that the high priority 
+numbers are smaller.  For example these IDs
+    10 - high prio for node 10
+    11 - high prio for node 10
+and then
+    110 - low prio for node 10
+    111 - low prio for node 11
+    
+
+The CAN subsystem is setup to know what kinds of messages to send and
+expect to receive. pg 1537 of spnu516c.pdf, and which of the 64 
+possible internal message objects (in message RAM) to place it into.
+Each message object is x20 long (ie. 32 bytes)
+There are 64 message object slots.
+
+
+Message Direction
+Direction = receive: On TxRqst, a remote frame with the identifier of
+this message object is transmitted. On reception of a data frame with
+matching identifier, the message is stored in this message object.
+
+Direction = transmit: On TxRqst, a data frame is transmitted. On
+reception of a remote frame with matching identifier, the TxRqst bit
+of this message object is set (if RmtEn = 1).
+
+Normally, the objects are accessed using message interface register sets,
+27.6 to avoid concurrent access issues.
+
+receive messages are requests - i.e. you transmit a request for something
+from a node, and will receive a message back.
+
+transmit messages are broadcasts, 
+
+Q: Automatic response to a request?  But prepraring a message object?
+Q: Remote frames?
+
+within the message objects, the priorty for message transmit/receive 
+is given by object number (1 is highest)
+
+☻ 2020-02-27 - CAN configuration
+    data rate 500 kBitps
+    CAN1
+        Msg 1 Tx with hi prio interrupt, no rtr
+        Msg 2 Rx with hi prio interrupt, no rtr
+    CAN2
+        Msg 1 Rx with hi prio interrupt, no rtr
+        Msg 2 Tx with hi prio interrupt, no rtr
+
+☻ 2020-02-24 - command line build
+
+In the Debug diretory you can do a command line build.  There is a glitch
+with the XCode version of make, but the one in ccs should work:
+
+Mine is:
+    /Applications/ti/ccs930/xdctools_3_60_01_27_core/gmake
+and I've put this into the extras/bin directory of the project, so in
+Debug you use the command
+    ../extras/bin/gmake
+
+☻ 2020-02-24 - side-effect implicit malloc
+
+If we are trying to avoid the Ti malloc, we need to be careful.
+
+Interesting, this dynamic allocation calls __vla_alloc which then
+aborts. Instead of using the stack, it seems to be an implicit malloc!
+Indeed, variable length arrays are not allocated on the stack, see
+    lib/src/vla_alloc.c
+
+Switching to the #define approach also eliminated the .memsize section
+issue since malloc no longer called.
+
+    size_t bufSize = 64;
+    char buf[bufSize];
+    size_t bufLen = 0;
+    int i;
+
+VS
+
+    #define bufSize 64
+    char buf[bufSize];
+    size_t bufLen = 0;
+    int i;
+
+Note: in 
+Project / Settings / CCS Build / ARM Compiler / Advanced Options / 
+    Assembler Oprions 
+set 
+    * Keep the genereated .asm file - to keep the .asm files around
+    * Generate listing file - to see a more formatted version, with the
+        opcodes included
+
+☻ 2020-02-25 - locating VLA (variable length arrays)
+
+The easiest approach seems to be to compile, saving the asm listings, and
+then searching for __vla_alloc calls.
+
+☻ 2020-02-22 - malloc
+
+If you include anything in the Ti libc (eg <stdio.h> you probably end up
+with this linker message:
+
+warning #10247-D: creating output section ".sysmem" without a SECTIONS
+specification
+
+This means that the Ti RTS memory allocator (lib/src/memory.c) has been
+linked in, and it's malloc is now available.  WE DO NOT WANT THIS.  We
+only want the FreeRTOS memory management.
+
+For example, when you look at the memory map in Debug, you see entries
+like this:
+
+.sysmem    0    00005200    00000800     UNINITIALIZED
+                00005200    00000010     rtsv7R4_A_be_v3D16_eabi.lib : memory.
+
+00000800  __SYSMEM_SIZE
+
+Indicating where the heap is located, and its size.  
+
+NOTE: the size of the Ti RTS heap is set in 
+    Project Options / Arm Linker / Basic Options
+
+See the linker options in 
+    http://downloads.ti.com/docs/esd/SPRUI04/linker-options-slau1325677.html
+
+set Issue remarks so you can see what decisions the linker is making.
+    Project Properties / Arm Linker / Advanced Options / Diagnostics
+
+set Scan libraries for duplicate symbols 
+    Project Properties / Arm Linker / Advanced Options / Symbol Management
+
+Possible: disable automatic RTS selection
+    Project Properties / Arm Linker / File Search Path
+
+NOTE: to get read of the .sysmem section you need to clean and rebuild the
+entire project so that you recompile the Ti libc.  If it still appears,
+it means you are doing an implicit malloc somewhere.
+
+☻ 2020-02-22 - using malloc
+
+As per https://www.freertos.org/a00111.html
+When you suspect you are getting interference between mallocs, you can use 
+FreeRTOS v9 heap_3.  See FreeRTOSv9.0.0/FreeRTOS/Source/portable/MemMang
+
+NOTE: when I tried heap_3 things broke.
+
+    heap_1 – the very simplest, does not permit memory to be freed
+
+    heap_2 – permits memory to be freed, but does not coalescence
+    adjacent free blocks.
+
+    heap_3 – simply wraps the standard malloc() and free() for
+    thread safety
+
+    heap_4 – coalescences adjacent free blocks to avoid
+    fragmentation. Includes absolute address placement option
+
+    heap_5 – as per heap_4, with the ability to span the heap across
+    multiple non-adjacent memory areas
+
+☻ 2020-02-24 - not using libc
+
+If you remove libc from the makefile in Debug, then you get the following small
+set of undefined symbols:
+
+ undefined            first referenced           
+  symbol                  in file                
+ ---------            ----------------           
+ __TI_auto_init       ./source/HL_sys_startup.obj
+ __TI_decompress_lzss                            
+ __TI_decompress_none                            
+ __TI_zero_init                                  
+ exit                 ./source/HL_sys_startup.obj
+ floor                ./source/HL_sci.obj        
+ memcpy               ./source/HL_het.obj        
+ memset               ./source/HL_adc.obj        
+ strlen               ./source/os_tasks.obj      
+
+
+☻ 2020-02-26 - auditing use of undesirable features
+
+extras/bin/map-audit is a simple shell script that greps the .map file
+in Debug for symbols that indicate an undesirable feature is being used.
+
+☻ 2020-02-25 - rebuilding libc
+
+See p 189 of spnu151r.pdf - the compiler manual.
+
+Note that libc source and build commands are located in
+    /Applications/ti/ccs930/ccs/tools/compiler/ti-cgt-arm_18.12.5.LTS
+and the library we are using for the TMS570LC43xx as selected by ccs is
+    lib/rtsv7R4_A_be_v3D16_eabi.lib
+
+In lib you do a command like:
+    ./mklib --pattern=rtsv7R4_A_be_v3D16_eabi.lib
+to build a specific library.
+
+A complete copy of that directory is in ccs-resources so that you can
+so a build without altering the main ccs install.  To do this, you need
+to set up your path to fetch the build executables.
+
+In lib you can set up the proper $PATH by sourcing
+    . set-ccs-path
+
+which at the time of writing looks like this:
+
+    export PATH=/Applications/ti/ccs930/xdctools_3_60_01_27_core:`pwd`/ti-cgt-arm_18.12.5.LTS/bin:$PATH
+
+Note that gmake is in something like:
+    /Applications/ti/ccs930/xdctools_3_60_01_27_core/gmake
+
+☻ 2020-02-25 - using own libc
+
+See various references:
+
+https://processors.wiki.ti.com/index.php/Mklib#What_about_users_who_don.27t_use_.22libc.a.22.2C_and_instead_refer_to_libraries_by_name_.28e.g._rts6200_eh.lib.29.3F

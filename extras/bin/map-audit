@@ -1,0 +1,63 @@
+#!/bin/bash
+#
+#   map-audit
+#
+# Check the symbols in the Debug/<prog>.map file for signals that something
+# is being used that should not.  For example, if variable length arrays
+# are being used, then the string _vla will appear in the map.
+#
+#   usage:  In the root directory of the project, invoke
+#       extras/bin/map-audit
+#       
+n_failed=0
+n_passed=0
+
+do_check () {
+    sym=$1
+    errmsg=$2
+    okmsg=$3
+
+    err=0
+    ( grep -q -- "$sym" Debug/*.map ) && err=1
+
+    if [[ $err == 1 ]]
+    then
+        echo FAIL - $errmsg
+        let n_failed=n_failed+1
+    else
+        # [[ $okmsg ]] && echo PASS - $okmsg
+        echo PASS - $okmsg
+        let n_passed=n_passed+1
+    fi
+    echo "    " Pattern "'$sym'"
+}
+
+# List of strings to check for and associated error msg, and optional
+# passed message
+
+do_check _vla "Variable length arrays being used." \
+    "No variable length arrays use."
+
+malloc_pat='text:\(malloc\|free\|minit\|calloc\|realloc)\)'
+do_check "$malloc_pat" "TI malloc being used." \
+    "No TI malloc use." 
+
+do_check __TI_printfi "TI printf family being used." \
+    "No TI printf family use." 
+
+do_check sysmem ".sysmem appears in memory map." \
+    "No .sysmem in memory map." 
+
+do_check unlock "lock is being used." \
+    "No lock in use." 
+
+echo
+echo SUMMARY RESULTS
+echo "    " Tests PASSED $n_passed
+echo "    " Tests FAILED $n_failed
+if [[ $n_failed > 0 ]]
+then
+    echo ERROR - Detected $error_cnt issues
+else
+    echo OK - No issues detected
+fi

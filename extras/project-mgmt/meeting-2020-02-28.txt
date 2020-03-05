@@ -1,0 +1,40 @@
+Hi All,
+
+Quick update and agenda for tomorrow's meeting:
+
+1 - Don't use variable length arrays, e.g.
+    size_t bufsize = 64;
+    char *buf[bufsize];
+
+2 - sprintf does not appear to be thread safe.  Since all the printf
+related routines use the same infrastructure, all the stdio is
+probably not thread safe.
+
+3 - to address 2 I have a light weight library for building up
+formatted strings.  So far this has not caused my test environment
+to crash.  We have to find places where xprintf appears and convert
+them.
+
+4 - I've built a shell script that inspects the .map file from a build
+for the presence of symbols that indicate that these problems are present.
+It's easy to add extra tests.
+
+5 - We should be OK using the TI libc provided that we inspect the
+code, and are careful about what parts we use.
+
+6 - We need to talk about the serial monitoring interface. It needs
+some hardware.
+
+7 - We need to talk about code reviews.
+
+8 - I should upload my repo to the proper location in git hub.  What I'd like 
+to do is start building a reference repo for the two boards:
+    the R5 TMS570LC43xx board
+    the R4 TMS570LS12x/RM46 LaunchPad
+It would contain all the working features so far.  For example SPI, SD
+card, CAN, CSP, etc.  I'm not sure what the best way to manage this is -
+a shared codebase for 2 (or more) distinct architectures is tricky.
+
+9 - near term tasks?
+
+
