@@ -1,0 +1,19 @@
+#/bin/bash
+#osx and ubuntu versions
+
+if [ "$ARDUINO_UA_ROOT" == '' ]
+then
+    export ARDUINO_UA_ROOT="$HOME"
+fi
+
+if [ `uname -s` == 'Darwin' ]
+then
+    open "/Applications/Arduino.app"
+else
+    if [ `uname -m` == 'x86_64' ]
+    then
+        exec "$ARDUINO_UA_ROOT/arduino-ua/arduino-1.0.1-64/arduino"
+    else
+        exec "$ARDUINO_UA_ROOT/arduino-ua/arduino-1.0.1-32/arduino"
+    fi
+fi

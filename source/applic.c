@@ -23,9 +23,6 @@ is going to cause malloc issues.
 
 /* Include Files */
 
-/* define this to trigger the variable length array bug */
-#undef TRIGGER_VLA_BUG
-
 #include "HL_sys_common.h"
 
 /* Include FreeRTOS scheduler files */
@@ -37,29 +34,9 @@ is going to cause malloc issues.
 #include "HL_gio.h"
 
 /* Include Alberta Sat library */
-#define USE_ABSAT_LIB
-
-#ifdef USE_ABSAT_LIB
-#include "absat_lib.h"
-#endif
-
-/* use TI libc sprintf */
-#undef USE_SPRINTF
-
-#ifdef USE_SPRINTF
-#include <stdio.h>
-#endif
-
-/* define FEATURE_SERIAL if you want to send output to SCI3 */
-#define FEATURE_SERIAL
-
-#ifdef FEATURE_SERIAL
-#define FEATURE_SERIAL_1
-#define FEATURE_SERIAL_2
-#define FEATURE_SERIAL_3
-/* Serial port SCI3 */
 #include "HL_sci.h"
-#endif
+#include "absat_lib.h"
+#include "absat_debug.h"
 
 /* CAN bus testing */
 #define FEATURE_CAN
@@ -68,11 +45,9 @@ is going to cause malloc issues.
 #include "HL_can.h"
 #endif
 
-
 /* Define Task Handles */
 xTaskHandle xTask1Handle;
 xTaskHandle xTask2Handle;
-xTaskHandle xTask3Handle;
 
 /* Blinking LEDS with SCI3 serial port output and input
 
@@ -87,32 +62,6 @@ LEDs on hetPORT1 pin number:
     LED2 Right      05
 */
 
-/* Send a string to SCI3 */
-
-/* for some reason, SCI3 is in interrupt mode, so 
-    sciSend(sciREG3, bufLen, (uint8 *) buf); 
-fails. We use a loop around the polling
-    sciSendByte(sciREG3, ... ); 
-instead */
-
-void SciSendStr( char *s ) 
-{
-    while ( *s != '\0' ) {
-        sciSendByte(sciREG3, *s);
-        s++;
-        }
-    }
-
-/* Send a buffer to SCI3 */
-void SciSendBuf( char *buf, uint32_t bufSize ) 
-{
-    while ( bufSize > 0 && *buf != '\0' ) {
-        sciSendByte(sciREG3, *buf);
-        buf++;
-        bufSize--;
-        }
-    }
-
 /* Task1 */
 const TickType_t task1DelayInc = 100;
 const TickType_t task2DelayInc = 110;
@@ -126,21 +75,24 @@ volatile static TickType_t task2Delay;
 volatile static uint8_t task2EnableDelay;
 volatile static uint8_t task2EnableSerial;
 
-
 void vTask1(void *pvParameters)
 {
+    // Task1 uses channel 1
+    int chanNum = 1;
+
     uint32_t rc;
 
+    // message buffer
     size_t bufSize = 64;
     char buf[32];
 
+    // CAN data buffer
     size_t dataSize = 8;
     uint8_t data[8];
 
     int32_t tag = 0;
     int32_t i;
 
-    data[0] = 0;
     for(;;)
     {
         /* Toggle Left Top HET[1] with timer tick */
@@ -161,21 +113,18 @@ void vTask1(void *pvParameters)
 
         rc = canTransmit(canREG1, canMESSAGE_BOX1, data);
 
-        #ifdef FEATURE_SERIAL_1
         if ( task1EnableSerial ) {
             buf[0] = '\0';
-            StrApStr(buf, bufSize, "\n\r1<");
+            StrApStr(buf, bufSize, "<");
             for ( i = 0; i < dataSize; i++ ) {
                 StrApDec(buf, bufSize, data[i]);
                 StrApStr(buf, bufSize, "|");
                 }
             StrApStr(buf, bufSize, " rc=");
             StrApDec(buf, bufSize, rc);
-            StrApStr(buf, bufSize, ">1\n\r");
-            SciSendStr(buf);
+            StrApStr(buf, bufSize, ">\n");
+            DebugSendStr(chanNum, buf);
             }
-        #endif
-
         #endif
 
         if ( task1EnableDelay ) {
@@ -188,19 +137,23 @@ void vTask1(void *pvParameters)
 /* Task2 - with two senders to CAN bus */
 void vTask2(void *pvParameters)
 {
-    uint32_t rc;
-    int32_t trycnt;
+    // Task2 uses channel 2
+    int chanNum = 2;
 
+    uint32_t rc;
+
+    // message buffer
     size_t bufSize = 64;
     char buf[32];
 
+    // CAN data buffer
     size_t dataSize = 8;
     uint8_t data[8];
 
+    int32_t trycnt;
     int32_t tag = 0;
     int32_t i;
 
-    data[0] = 0;
     for(;;)
     {
         /* Toggle Left Top HET[1] with timer tick */
@@ -218,8 +171,8 @@ void vTask2(void *pvParameters)
 
         if ( task2EnableSerial ) {
             buf[0] = '\0';
-            StrApStr(buf, bufSize, "\n\r2TRY2\n\r");
-            SciSendStr(buf);
+            StrApStr(buf, bufSize, "TRY2\n");
+            DebugSendStr(chanNum, buf);
             }
 
         trycnt = 200;
@@ -229,36 +182,35 @@ void vTask2(void *pvParameters)
             if ( rc ) { 
                 if ( task2EnableSerial ) {
                     buf[0] = '\0';
-                    StrApStr(buf, bufSize, "\n\rOK2: ");
+                    StrApStr(buf, bufSize, "OK: ");
                     StrApDec(buf, bufSize, trycnt);
-                    StrApStr(buf, bufSize, "\n\r");
-                    SciSendStr(buf);
+                    StrApStr(buf, bufSize, "\n");
+                    DebugSendStr(chanNum, buf);
                     }
                 }
             trycnt--;
             }
+
         if ( trycnt <= 0 ) {
             if ( task2EnableSerial ) {
                 buf[0] = '\0';
-                StrApStr(buf, bufSize, "\n\r2FAIL2\n\r");
-                SciSendStr(buf);
+                StrApStr(buf, bufSize, "FAIL\n");
+                DebugSendStr(chanNum, buf);
                 }
             }
             
-        #ifdef FEATURE_SERIAL_2
         if ( task2EnableSerial ) {
             buf[0] = '\0';
-            StrApStr(buf, bufSize, "\n\r2<");
+            StrApStr(buf, bufSize, "<");
             for ( i = 0; i < dataSize; i++ ) {
                 StrApDec(buf, bufSize, data[i]);
                 StrApStr(buf, bufSize, "|");
                 }
             StrApStr(buf, bufSize, " rc=");
             StrApDec(buf, bufSize, rc);
-            StrApStr(buf, bufSize, ">2\n\r");
-            SciSendStr(buf);
+            StrApStr(buf, bufSize, ">\n");
+            DebugSendStr(chanNum, buf);
             }
-        #endif
 
         #endif
 
@@ -271,14 +223,20 @@ void vTask2(void *pvParameters)
 /* Task2  - receive task */
 void vTask2(void *pvParameters)
 {
-    uint32_t rc;
-    int32_t i;
+    // Task2 uses channel 2
+    int chanNum = 2;
 
+    uint32_t rc;
+
+    // message buffer
     size_t bufSize = 64;
     char buf[32];
 
+    // CAN data buffer
     size_t dataSize = 8;
     uint8_t data[8];
+
+    int32_t i;
 
     for(;;)
     {
@@ -302,15 +260,15 @@ void vTask2(void *pvParameters)
 
         if ( task2EnableSerial ) {
             buf[0] = '\0';
-            StrApStr(buf, bufSize, "\n\r2<");
+            StrApStr(buf, bufSize, "<");
             for ( i = 0; i < dataSize; i++ ) {
                 StrApDec(buf, bufSize, data[i]);
                 StrApStr(buf, bufSize, "|");
                 }
             StrApStr(buf, bufSize, " rc=");
             StrApDec(buf, bufSize, rc);
-            StrApStr(buf, bufSize, ">2\n\r");
-            SciSendStr(buf);
+            StrApStr(buf, bufSize, ">\n");
+            DebugSendStr(chanNum, buf);
             }
         #endif
 
@@ -321,134 +279,103 @@ void vTask2(void *pvParameters)
 }
 #endif
 
-/* Task3 */
-void vTask3(void *pvParameters)
+void DebugHandleCmd( uint32 cmdByte )
 {
-    uint32 recByte;
+    // Debug Task uses channel 0
+    int chanNum = 0;
 
-#ifdef TRIGGER_VLA_BUG
-    /* Interesting, this variable length array allocation calls __via_alloc which then aborts.
-     * It's an implicit malloc, not a stack-based alloc!  Plus, it doesn't look like it is
-     * freed on a return.
-    */
-
-    size_t bufSize = 64;
-    char buf[bufSize];
-#else
+    // message buffer
     size_t bufSize = 64;
     char buf[64];
-#endif
-
     int32_t bufLen = 0;
 
-    for(;;)
-    {
-        /* wait for a control command from SCI3 
-            u - increase task1 delay
-            d - decrease task1 delay
-            r - reset task1 delay
-            n - no task1 delay
-            f - turn off task1 serial output
-            g - turn on task1 serial output
+    /* process the command character */
 
-            U - increase task2 delay
-            D - decrease task2 delay
-            R - reset task2 delay
-            N - no task2 delay
-            F - turn off task2 serial output
-            G - turn on task2 serial output
-        */
+    /* wait for a control command from SCI3 
+        u - increase task1 delay
+        d - decrease task1 delay
+        r - reset task1 delay
+        n - no task1 delay
+        f - turn off task1 serial output
+        g - turn on task1 serial output
 
-        if ( sciIsRxReady(sciREG3) ) {
+        U - increase task2 delay
+        D - decrease task2 delay
+        R - reset task2 delay
+        N - no task2 delay
+        F - turn off task2 serial output
+        G - turn on task2 serial output
+    */
 
+    /* references and updates to task1Delay need to be in a critical section */
 
-            recByte = sciReceiveByte(sciREG3);
+    /* ensure taskDelay never set below 0 or greater than 50 * inc */
 
-            /* references and updates to task1Delay need to be in a
-                critical section */
-
-            /* ensure taskDelay never set below 0 or greater than 50 * inc */
-
-            switch ( recByte ) {
-            case 'u':
-                if ( task1Delay < 50 * task1DelayInc ) { 
-                    task1Delay += task1DelayInc; 
-                    task1EnableDelay = 1;
-                    }
-                break;
-            case 'd':
-                if ( task1Delay > task1DelayInc ) { 
-                    task1Delay -= task1DelayInc; 
-                    task1EnableDelay = 1;
-                    }
-                break;
-            case 'r':
-                task1Delay = 2 * task1DelayInc;
-                task1EnableDelay = 1;
-                break;
-            case 'n':
-                task1EnableDelay = 0;
-                break;
-            case 'f':
-                task1EnableSerial = 0;
-                break;
-            case 'g':
-                task1EnableSerial = 1;
-                break;
-
-            case 'U':
-                if ( task2Delay < 50 * task2DelayInc ) { 
-                    task2Delay += task2DelayInc; 
-                    task2EnableDelay = 1;
-                    }
-                break;
-            case 'D':
-                if ( task2Delay > task2DelayInc ) { 
-                    task2Delay -= task2DelayInc; 
-                    task2EnableDelay = 1;
-                    }
-                break;
-            case 'R':
-                task2Delay = 2 * task2DelayInc;
-                task2EnableDelay = 1;
-                break;
-            case 'N':
-                task2EnableDelay = 0;
-                break;
-            case 'F':
-                task2EnableSerial = 0;
-                break;
-            case 'G':
-                task2EnableSerial = 1;
-                break;
-
-            // default:
+    switch ( cmdByte ) {
+    case 'u':
+        if ( task1Delay < 50 * task1DelayInc ) { 
+            task1Delay += task1DelayInc; 
+            task1EnableDelay = 1;
             }
-
-            /* Echo the input indicating Task3 got it */
-            #ifdef USE_ABSAT_LIB
-                bufLen = 0;
-                buf[0] = '\0';
-                bufLen += StrApStr(buf, bufSize, "\n\r3<");
-                bufLen += StrApChar(buf, bufSize, recByte);
-                bufLen += StrApStr(buf, bufSize, ", ");
-                bufLen += StrApDec(buf, bufSize, recByte);
-                bufLen += StrApStr(buf, bufSize, ">\n\r");
-            #elif defined( USE_SPRINTF )
-                /* not sure if snprintf is thread safe so guard it also */
-                bufLen = snprintf(buf, (size_t) bufSize, "3<%d>", recByte);
-            #endif
-
-            /* This barrier should not be needed in non-interrupt
-               mode, and in fact is a race condition between tasks
-
-                while ( ! sciIsTxReady(sciREG3) ) { }
-             */
-            
-            SciSendBuf(buf, bufLen);
+        break;
+    case 'd':
+        if ( task1Delay > task1DelayInc ) { 
+            task1Delay -= task1DelayInc; 
+            task1EnableDelay = 1;
             }
-        vTaskDelay(50);
-        }
+        break;
+    case 'r':
+        task1Delay = 2 * task1DelayInc;
+        task1EnableDelay = 1;
+        break;
+    case 'n':
+        task1EnableDelay = 0;
+        break;
+    case 'f':
+        task1EnableSerial = 0;
+        break;
+    case 'g':
+        task1EnableSerial = 1;
+        break;
+
+    case 'U':
+        if ( task2Delay < 50 * task2DelayInc ) { 
+            task2Delay += task2DelayInc; 
+            task2EnableDelay = 1;
+            }
+        break;
+    case 'D':
+        if ( task2Delay > task2DelayInc ) { 
+            task2Delay -= task2DelayInc; 
+            task2EnableDelay = 1;
+            }
+        break;
+    case 'R':
+        task2Delay = 2 * task2DelayInc;
+        task2EnableDelay = 1;
+        break;
+    case 'N':
+        task2EnableDelay = 0;
+        break;
+    case 'F':
+        task2EnableSerial = 0;
+        break;
+    case 'G':
+        task2EnableSerial = 1;
+        break;
+
+    // default:
+    }
+
+    bufLen = 0;
+    buf[0] = '\0';
+    bufLen += StrApStr(buf, bufSize, "<");
+    bufLen += StrApChar(buf, bufSize, cmdByte);
+    bufLen += StrApStr(buf, bufSize, ", ");
+    bufLen += StrApDec(buf, bufSize, cmdByte);
+    bufLen += StrApStr(buf, bufSize, ">\n");
+
+    DebugSendBuf(chanNum, buf, bufLen);
     }
 
 void applic(void)
@@ -457,8 +384,9 @@ void applic(void)
     /* Set high end timer GIO port hetPort pin direction to all output */
     gioSetDirection(hetPORT1, 0xFFFFFFFF);
 
+    /* guard for non init */
+    DebugInit();
 
-#ifdef FEATURE_SERIAL
     /* Start serial */
     sciInit();
 
@@ -466,7 +394,7 @@ void applic(void)
        blocking so we need to me more careful when calling the sci send and receive
        functions.  This actually doesn't seem to do anything.
     */
-#endif
+
 #ifdef IGNORE
     sciDisableNotification(sciREG3, 
         SCI_FE_INT ||
@@ -494,21 +422,16 @@ void applic(void)
 
     /* Create Task 1 - set defaults before creation to ensure initialized on restart */
 
-    if (xTaskCreate(vTask1,"Task1", configMINIMAL_STACK_SIZE, NULL, 1, &xTask1Handle) != pdTRUE)
+    if (xTaskCreate(vTask1,"Task1", 
+        configMINIMAL_STACK_SIZE, NULL, 1, &xTask1Handle) != pdTRUE)
     {
         /* Task could not be created */
         while(1);
     }
 
     /* Create Task 2 */
-    if (xTaskCreate(vTask2,"Task2", configMINIMAL_STACK_SIZE, NULL, 1, &xTask2Handle) != pdTRUE)
-    {
-        /* Task could not be created */
-        while(1);
-    }
-
-    /* Create Task 3 */
-    if (xTaskCreate(vTask3,"Task3", configMINIMAL_STACK_SIZE, NULL, 1, &xTask3Handle) != pdTRUE)
+    if (xTaskCreate(vTask2,"Task2", 
+        configMINIMAL_STACK_SIZE, NULL, 1, &xTask2Handle) != pdTRUE)
     {
         /* Task could not be created */
         while(1);

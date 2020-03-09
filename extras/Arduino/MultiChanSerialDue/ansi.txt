@@ -1,0 +1,16 @@
+use strict;
+use warnings;
+
+    # red = \[\e[0;31m\]
+    # bold red (style 1) = \[\e[1;31m\]
+    # clear coloring = \[\e[0m\]
+
+printf "\[\e[0;31m\]test\n";
+printf "\[\e[1;31m\]the colors\n";
+printf "\[\e[0m\]back to nonmal\n";
+
+# escape is \e or \1B
+
+printf "\e[0;31mtest\n";
+printf "\e[1;31mthe colors\n";
+printf "\e[0mback to nonmal\n";

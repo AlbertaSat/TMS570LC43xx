@@ -41,6 +41,26 @@ Then I started CCS (v9):
             Fast Verify
             Erase necessary sectors only
 
+☻ Getting rid of Missing project folder warning message
+
+When you add directories or files to the workspace, CCS can pick them
+up as part of the project, and you need to exclude them if you don't
+want them involved in the build.  If you forget to do this, then you
+can't simply delete them because you will get warnings like this:
+
+Invalid project path: Missing project folder or file:
+/TMS570LC43xx/extras/MultiSerialDue for Source path. TMS570LC43xx
+pathentry Path Entry Problem
+
+To resolve this, you need to remove the offending entry from the
+.cproject file.  It has a section named <sourceEntries>, and then
+an entry for each file/directory that generates the annoying warning.
+Shut down CCS and remove the entry.  This should fix the problem.
+
+In one case, I deleted the diretory, and so had to add it back in,
+exclude it, and then use CCS to delete it.  I still had to edit
+the .cproject file to clear the message.
+
 ☻ Renaming an existing project
 
 Select the project in the project explorer panel.  
