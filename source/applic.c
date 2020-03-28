@@ -2,22 +2,15 @@
     Demo program for core Alberta Sat features on the main cpu Cortex R5
     on a TMS570LC43xx development kit running FreeRTOS 9.
 
-    blink-sci3-io
+    The DebugTask is responsible to sending the various debug messages to the 
+    monitoring serial port, and to processing debug commands from that port.
+    (In this case from SCI3). 
+    The commands that we can process are implemented in DebugHandleCmd below.
 
-    This demo has three tasks.  
+    At a bare minimum, Task 1 and 2 blink LEDs on the board.  They are also doing
+    CANBUS experiments.  Task 3 is reserved for additional CAN testing.
 
-    Task 1 and 2 blink LEDs on the board.
-    Every activation, they send their task number as a single character to SCI3.
-
-    Task 3 looks for input from SCI3. When a character is received, it
-    sends its task number to SCI3, Every time a task is invoked, acts
-    on the command indicated by the character, and then echos the
-    character back to SCI3.
-
-    Commands are described in Task3 below
-
-NOTE: this version is doing an experiment with stdio.h to see if snprintf
-is going to cause malloc issues.
+    TaskStack is an experiment to see if task stack overflow is detected.
 
 */
 
@@ -46,8 +39,14 @@ is going to cause malloc issues.
 #endif
 
 /* Define Task Handles */
+extern xTaskHandle DebugTaskHandle;
 xTaskHandle xTask1Handle;
 xTaskHandle xTask2Handle;
+xTaskHandle xTaskStackHandle;
+
+#ifdef FEATURE_CAN_DUAL_SEND
+xTaskHandle xTask3Handle;
+#endif
 
 /* Blinking LEDS with SCI3 serial port output and input
 
@@ -75,16 +74,14 @@ volatile static TickType_t task2Delay;
 volatile static uint8_t task2EnableDelay;
 volatile static uint8_t task2EnableSerial;
 
+volatile static int32_t taskStackParam;
+
 void vTask1(void *pvParameters)
 {
     // Task1 uses channel 1
     int chanNum = 1;
 
     uint32_t rc;
-
-    // message buffer
-    size_t bufSize = 64;
-    char buf[32];
 
     // CAN data buffer
     size_t dataSize = 8;
@@ -114,16 +111,10 @@ void vTask1(void *pvParameters)
         rc = canTransmit(canREG1, canMESSAGE_BOX1, data);
 
         if ( task1EnableSerial ) {
-            buf[0] = '\0';
-            StrApStr(buf, bufSize, "<");
-            for ( i = 0; i < dataSize; i++ ) {
-                StrApDec(buf, bufSize, data[i]);
-                StrApStr(buf, bufSize, "|");
-                }
-            StrApStr(buf, bufSize, " rc=");
-            StrApDec(buf, bufSize, rc);
-            StrApStr(buf, bufSize, ">\n");
-            DebugSendStr(chanNum, buf);
+            DebugSendFmt(chanNum, "Tx <%d|%d|%d|%d|%d|%d|%d|%d| rc=%d>\n",
+                data[0], data[1], data[2], data[3], 
+                data[4], data[5], data[6], data[7], 
+                rc);
             }
         #endif
 
@@ -133,93 +124,6 @@ void vTask1(void *pvParameters)
     }
 }
 
-#ifdef FEATURE_CAN_DUAL_SEND
-/* Task2 - with two senders to CAN bus */
-void vTask2(void *pvParameters)
-{
-    // Task2 uses channel 2
-    int chanNum = 2;
-
-    uint32_t rc;
-
-    // message buffer
-    size_t bufSize = 64;
-    char buf[32];
-
-    // CAN data buffer
-    size_t dataSize = 8;
-    uint8_t data[8];
-
-    int32_t trycnt;
-    int32_t tag = 0;
-    int32_t i;
-
-    for(;;)
-    {
-        /* Toggle Left Top HET[1] with timer tick */
-        gioSetBit(hetPORT1, 17, gioGetBit(hetPORT1, 17) ^ 1);
-
-        #ifdef FEATURE_CAN
-        /* 
-            Task2 is going to send CAN messages on canREG2
-        */
-        tag++;
-        data[0] = tag;
-        for ( i = 1; i < dataSize; i++ ) {
-            data[i] = 10*i;
-            }
-
-        if ( task2EnableSerial ) {
-            buf[0] = '\0';
-            StrApStr(buf, bufSize, "TRY2\n");
-            DebugSendStr(chanNum, buf);
-            }
-
-        trycnt = 200;
-        while ( trycnt > 0 ) {
-            rc = canTransmit(canREG2, canMESSAGE_BOX2, data);
-
-            if ( rc ) { 
-                if ( task2EnableSerial ) {
-                    buf[0] = '\0';
-                    StrApStr(buf, bufSize, "OK: ");
-                    StrApDec(buf, bufSize, trycnt);
-                    StrApStr(buf, bufSize, "\n");
-                    DebugSendStr(chanNum, buf);
-                    }
-                }
-            trycnt--;
-            }
-
-        if ( trycnt <= 0 ) {
-            if ( task2EnableSerial ) {
-                buf[0] = '\0';
-                StrApStr(buf, bufSize, "FAIL\n");
-                DebugSendStr(chanNum, buf);
-                }
-            }
-            
-        if ( task2EnableSerial ) {
-            buf[0] = '\0';
-            StrApStr(buf, bufSize, "<");
-            for ( i = 0; i < dataSize; i++ ) {
-                StrApDec(buf, bufSize, data[i]);
-                StrApStr(buf, bufSize, "|");
-                }
-            StrApStr(buf, bufSize, " rc=");
-            StrApDec(buf, bufSize, rc);
-            StrApStr(buf, bufSize, ">\n");
-            DebugSendStr(chanNum, buf);
-            }
-
-        #endif
-
-        if ( task2EnableDelay ) {
-            vTaskDelay(task2Delay);
-            }
-    }
-}
-#else
 /* Task2  - receive task */
 void vTask2(void *pvParameters)
 {
@@ -227,10 +131,6 @@ void vTask2(void *pvParameters)
     int chanNum = 2;
 
     uint32_t rc;
-
-    // message buffer
-    size_t bufSize = 64;
-    char buf[32];
 
     // CAN data buffer
     size_t dataSize = 8;
@@ -259,6 +159,74 @@ void vTask2(void *pvParameters)
         rc = canGetData(canREG2, canMESSAGE_BOX1, data);
 
         if ( task2EnableSerial ) {
+            DebugSendFmt(chanNum, "Rx <%d|%d|%d|%d|%d|%d|%d|%d| rc=%d>\n",
+                data[0], data[1], data[2], data[3],
+                data[4], data[5], data[6], data[7],
+                rc);
+            }
+        #endif
+
+        if ( task2EnableDelay ) {
+            vTaskDelay(task2Delay);
+            }
+    }
+} /* Task2 */
+
+/* Task3 - with two senders to CAN bus */
+void vTask3(void *pvParameters)
+{
+    // Task3 uses channel 3
+    int chanNum = 3;
+
+    uint32_t rc;
+
+    // CAN data buffer
+    size_t dataSize = 8;
+    uint8_t data[8];
+
+    int32_t trycnt;
+    int32_t tag = 0;
+    int32_t i;
+
+    for(;;)
+    {
+        /* Toggle Left Top HET[1] with timer tick */
+        gioSetBit(hetPORT1, 17, gioGetBit(hetPORT1, 17) ^ 1);
+
+        #ifdef FEATURE_CAN
+        /* 
+            Task2 is going to send CAN messages on canREG2
+        */
+        tag++;
+        data[0] = tag;
+        for ( i = 1; i < dataSize; i++ ) {
+            data[i] = 10*i;
+            }
+
+        if ( task2EnableSerial ) {
+            DebugSendFmt(chanNum, "TRY2\n");
+            }
+
+        trycnt = 200;
+        while ( trycnt > 0 ) {
+            rc = canTransmit(canREG2, canMESSAGE_BOX2, data);
+
+            if ( rc ) { 
+                if ( task2EnableSerial ) {
+                    DebugSendFmt(chanNum, "OK: %d\n", trycnt);
+                    }
+                }
+            trycnt--;
+            }
+
+        if ( trycnt <= 0 ) {
+            if ( task2EnableSerial ) {
+                DebugSendFmt(chanNum, "FAIL\n");
+                }
+            }
+            
+        if ( task2EnableSerial ) {
+#ifdef IGNORE
             buf[0] = '\0';
             StrApStr(buf, bufSize, "<");
             for ( i = 0; i < dataSize; i++ ) {
@@ -269,29 +237,77 @@ void vTask2(void *pvParameters)
             StrApDec(buf, bufSize, rc);
             StrApStr(buf, bufSize, ">\n");
             DebugSendStr(chanNum, buf);
+#endif
+            DebugSendFmt(chanNum, "Tx <%d|%d|%d|%d|%d|%d|%d|%d| rc=%d>\n",
+                data[0], data[1], data[2], data[3], 
+                data[4], data[5], data[6], data[7], 
+                rc);
             }
+
         #endif
 
         if ( task2EnableDelay ) {
             vTaskDelay(task2Delay);
             }
     }
+} /* end Task3 */
+
+void debugStackHighWater(int chanNum, TaskHandle_t xTask )
+{
+    UBaseType_t highMark;
+    highMark = uxTaskGetStackHighWaterMark( xTask );
+    DebugSendFmt(chanNum, "Task %s high %d\n", pcTaskGetName(xTask), highMark);
+    }
+
+uint32_t recurse(int chanNum, int32_t arg)
+{
+    int32_t b[3];
+
+    b[0] = arg;
+    b[1] = 0;
+    b[2] = 0;
+    if ( arg < 0 ) { return 0; }
+
+    DebugSendFmt(chanNum, "recurse %d\n", arg);
+    debugStackHighWater(chanNum, xTaskStackHandle);
+
+    if ( arg <= 0 ) {
+        b[1] = arg;
+        return b[0] + b[1];
+    } else {
+        b[2] = arg -1;
+        b[1] = recurse(chanNum, b[2]);
+        return 1 + b[1] + b[2];
+    }
 }
-#endif
+
+void vTaskStack(void *pvParameters)
+{
+    // Task3 uses channel 3
+    int chanNum = 4;
+    while ( 1 ) {
+        recurse(chanNum, taskStackParam);
+        vTaskDelay(task2Delay);
+    }
+}
+
+
+
 
 void DebugHandleCmd( uint32 cmdByte )
 {
     // Debug Task uses channel 0
     int chanNum = 0;
 
-    // message buffer
-    size_t bufSize = 64;
-    char buf[64];
-    int32_t bufLen = 0;
-
+    /* HJH dump out the stack high water marks for each task
+     * UBaseType_t uxTaskGetStackHighWaterMark( TaskHandle_t xTask );
+     */
     /* process the command character */
 
     /* wait for a control command from SCI3 
+        H - display stack high water mark for each task.
+        S - cause a user stack overflow
+
         u - increase task1 delay
         d - decrease task1 delay
         r - reset task1 delay
@@ -311,7 +327,25 @@ void DebugHandleCmd( uint32 cmdByte )
 
     /* ensure taskDelay never set below 0 or greater than 50 * inc */
 
+    DebugSendFmt(chanNum, "CMD <%c, %d>\n", cmdByte, cmdByte);
+
     switch ( cmdByte ) {
+    case 'H':
+        debugStackHighWater(chanNum, DebugTaskHandle);
+        debugStackHighWater(chanNum, xTask1Handle);
+        debugStackHighWater(chanNum, xTask2Handle);
+        debugStackHighWater(chanNum, xTaskStackHandle);
+        break;
+
+    case 'S':
+        if ( taskStackParam > 0 ) {
+            taskStackParam = -1;
+        }
+        else {
+            taskStackParam = 10;
+        }
+        break;
+
     case 'u':
         if ( task1Delay < 50 * task1DelayInc ) { 
             task1Delay += task1DelayInc; 
@@ -366,16 +400,6 @@ void DebugHandleCmd( uint32 cmdByte )
 
     // default:
     }
-
-    bufLen = 0;
-    buf[0] = '\0';
-    bufLen += StrApStr(buf, bufSize, "<");
-    bufLen += StrApChar(buf, bufSize, cmdByte);
-    bufLen += StrApStr(buf, bufSize, ", ");
-    bufLen += StrApDec(buf, bufSize, cmdByte);
-    bufLen += StrApStr(buf, bufSize, ">\n");
-
-    DebugSendBuf(chanNum, buf, bufLen);
     }
 
 void applic(void)
@@ -420,6 +444,8 @@ void applic(void)
     task2EnableDelay = 1;
     task2EnableSerial = 1;
 
+    /* HJH - Need to specify the stack size for the various tasks */
+
     /* Create Task 1 - set defaults before creation to ensure initialized on restart */
 
     if (xTaskCreate(vTask1,"Task1", 
@@ -437,6 +463,25 @@ void applic(void)
         while(1);
     }
 
+#ifdef FEATURE_CAN_DUAL_SEND
+    /* Create Task 3 */
+    if (xTaskCreate(vTask3,"Task3", 
+        configMINIMAL_STACK_SIZE, NULL, 1, &xTask3Handle) != pdTRUE)
+    {
+        /* Task could not be created */
+        while(1);
+    }
+#endif
+
+    /* Create Task To Test Stack Overflow */
+    taskStackParam = -1;
+    if (xTaskCreate(vTaskStack,"StackSmash", 
+        configMINIMAL_STACK_SIZE, NULL, 1, &xTaskStackHandle) != pdTRUE)
+    {
+        /* Task could not be created */
+        while(1);
+    }
+
     /* Start Scheduler */
     vTaskStartScheduler();
 
@@ -444,6 +489,25 @@ void applic(void)
     while(1);
 
     /* not reached */
+}
+
+void vApplicationStackOverflowHook( TaskHandle_t *pxTask,
+                                    signed char *pcTaskName )
+{
+    /* at this point you are back in the scheduler, so this should work.  But no,
+     * so the stack pointer must still be from the old task
+    */
+    UBaseType_t highMark;
+#ifdef IGNORE
+    if ( 0 ) {
+    highMark = uxTaskGetStackHighWaterMark( *pxTask );
+    DebugSendFmt(0, "Task %s stack overflow, high %d\n", pcTaskGetName(*pxTask), highMark);
+    } else {
+        DebugSendStr(0, "STKOVF\n");
+    }
+# endif
+
+    while(1);
 }
 
 void vApplicationTickHook( void )

@@ -1,0 +1,39 @@
+#!/usr/bin/perl
+# convert a unix text file to a dos text file
+# usage:
+#	unix2dos file-to-be-converted
+# AGO code:
+#    local (*IN);
+#
+#    open(IN, "foo.dat") or die;
+#
+#    binmode IN;
+#
+#    my @L = split(/\r?\n/, do { local $/; <IN> });
+#
+#    close IN;
+#
+
+foreach $file ( @ARGV ) {
+	
+	print "Converting $file\n";
+
+	die "No file $file\n" unless -f $file;
+
+	open(FD, "<$file") || die;
+	# binmode(FD);
+
+	@lines = <FD>;
+
+	close(FD);
+
+	open(FD, ">$file") || die;
+	binmode(FD);
+
+	foreach $line ( @lines ) {
+	   ($data, $rest) = split /\r?\n/, $line;
+	   print FD "$data\r\n";
+	}
+
+	close(FD);
+}

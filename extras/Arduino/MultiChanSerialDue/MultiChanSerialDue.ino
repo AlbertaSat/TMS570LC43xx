@@ -474,13 +474,18 @@ void loop() {
       else if ( inByte == 'n' || inByte == 'd' || inByte == 'v' ) {
         runMode = inByte;
       } else {
-        /* adjust the DUT simulation parameters
+        /* adjust the DUT port parameters
             a - put port 1 into mode 1
             A - put port 1 into mode 2
             b - put port 2 into mode 1
             B - put port 2 into mode 2
             c - put port 3 into mode 1
             C - put port 3 into mode 2
+
+        channel filtering
+            suppress port n
+            suppress port n chan c
+
         */
         int pnum = 1;
         int pmode = 2;

@@ -70,6 +70,8 @@ fi
 # minicom will remove it
 touch "$LOCK"
 # "$MINICOM" -o -w 0
-"$MINICOM" -o -w $port
+logfile=~/tmp/minicom-$$.log
+"$MINICOM" -o -w $port -C $logfile
 rm "$LOCK"
 echo lockfile $LOCK removed
+echo session log in $logfile

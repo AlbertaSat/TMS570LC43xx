@@ -2,13 +2,19 @@
     Test harness for absat_lib string functions
 */
 
-#include "absat_lib.c"
 #include <stdio.h>
+
+/* used in TI code base, not needed here */
+#define _CODE_ACCESS
+
+#include "absat_lib.c"
+
 int main( int argc, char *argv[] )
 {
     size_t bufsize = 80;
     char buf[bufsize];
     int n = 0;
+    int v;
 
     printf("Testing begins ...\n");
 
@@ -130,6 +136,68 @@ int main( int argc, char *argv[] )
     n += StrApStr(buf+n, bufsize-n, "|");
     printf("n=%4d, size=%4lu, buf='%s'\n", n, bufsize, buf);
 
+    printf("Fmt\n");
+    n = 0;
+    buf[0] = '\0';
+    n += StrApFmt(buf, bufsize, "Fmt %% %h s '%s' dec '%d' hex '%x' HEX '%X' %",
+        "Hello-World", 12, 12, 0x12345678);
+    printf("n=%4d, size=%4lu, buf='%s'\n", n, bufsize, buf);
+
+    printf("Fmt Hex x X\n");
+
+    v = 0;
+    n = 0;
+    buf[0] = '\0';
+    n += StrApFmt(buf, bufsize, "Fmt  hex '%x' HEX '%X'", v, v);
+    printf("n=%4d, size=%4lu, buf='%s'\n", n, bufsize, buf);
+
+    v = 12;
+    n = 0;
+    buf[0] = '\0';
+    n += StrApFmt(buf, bufsize, "Fmt  hex '%x' HEX '%X'", v, v);
+    printf("n=%4d, size=%4lu, buf='%s'\n", n, bufsize, buf);
+
+    v = -12;
+    n = 0;
+    buf[0] = '\0';
+    n += StrApFmt(buf, bufsize, "Fmt  hex '%x' HEX '%X'", v, v);
+    printf("n=%4d, size=%4lu, buf='%s'\n", n, bufsize, buf);
+
+    v = 63;
+    n = 0;
+    buf[0] = '\0';
+    n += StrApFmt(buf, bufsize, "Fmt  hex '%x' HEX '%X'", v, v);
+    printf("n=%4d, size=%4lu, buf='%s'\n", n, bufsize, buf);
+
+    v = -63;
+    n = 0;
+    buf[0] = '\0';
+    n += StrApFmt(buf, bufsize, "Fmt  hex '%x' HEX '%X'", v, v);
+    printf("n=%4d, size=%4lu, buf='%s'\n", n, bufsize, buf);
+
+    v = 0x12345678;
+    n = 0;
+    buf[0] = '\0';
+    n += StrApFmt(buf, bufsize, "Fmt  hex '%x' HEX '%X'", v, v);
+    printf("n=%4d, size=%4lu, buf='%s'\n", n, bufsize, buf);
+
+    v = -0x12345678;
+    n = 0;
+    buf[0] = '\0';
+    n += StrApFmt(buf, bufsize, "Fmt  hex '%x' HEX '%X'", v, v);
+    printf("n=%4d, size=%4lu, buf='%s'\n", n, bufsize, buf);
+
+    v = 0x1234567;
+    n = 0;
+    buf[0] = '\0';
+    n += StrApFmt(buf, bufsize, "Fmt  hex '%x' HEX '%X'", v, v);
+    printf("n=%4d, size=%4lu, buf='%s'\n", n, bufsize, buf);
+
+    v = -0x1234567;
+    n = 0;
+    buf[0] = '\0';
+    n += StrApFmt(buf, bufsize, "Fmt  hex '%x' HEX '%X'", v, v);
+    printf("n=%4d, size=%4lu, buf='%s'\n", n, bufsize, buf);
 
     printf("... testing ends.\n");
     }

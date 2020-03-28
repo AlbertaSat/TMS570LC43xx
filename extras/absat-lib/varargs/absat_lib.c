@@ -37,22 +37,11 @@
 
     StrApFmt - append a formatted string to a buffer
     StrApFmtV - varargs version of StrApFmt 
-        - Uses printf-like format string, but with no modifiers, e.g.
-        no %2d just %d.
-        - arguments are either char* or int32_t
-        - format types are
-            %s - string pointer
-            %d - signed decimal value
-            %x - 32 bit unsigned hex value, suppress leading 0
-            %X - 32 bit unsigned hex value, all 8 digits
-            %% - the % sign
-
     StrInStr - insert a string to a buffer
     StrApStr - append a string to a buffer
     StrApChar - append a char to a buffer
     StrApDec - convert int32_t into a decimal and append to a buffer
-    StrApHex - convert uin32_t into a hex with min num of digits and append to a buffer
-    StrApHex32 - convert uin32_t into a 8 digit hex and append to a buffer
+    StrApHex - convert uin32_t into a 8 digit hex and append to a buffer
 
     Pending ...
     StrApDbl - convert long double into a floating point string
@@ -84,7 +73,6 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdarg.h>
-#include "absat_lib.h"
 
 int32_t StrInBuf( char *buf, size_t bufsize, char *inbuf, size_t inbufsize )
 {
@@ -150,61 +138,7 @@ int32_t StrApChar( char *buf, size_t bufsize, char c )
     }
 
 
-int32_t StrApHex( char *buf, size_t bufsize, int32_t val )
-{
-    static char* digits = "0123456789abcdef";
-
-    if ( bufsize <= 0 ) { return 0; };
-
-    /* locate the end of the current string in buf */
-    while ( bufsize > 0 && *buf != '\0' ) {
-        bufsize--;
-        buf++;
-        }
-
-    if ( bufsize <= 0 ) { return 0; };
-
-    /* if insufficient length to hold all 8 hex digits of val, return
-       as many left hand nonzero digits as possible.
-    */
-
-    uint32_t bits = (uint32_t) val;
-    int pos = bufsize > 8 ? 8 : bufsize-1;
-    
-    /* fill in from rhs */
-
-    buf[pos] = '\0';
-    int i = 0;
-    int j;
-
-    while ( pos > 0 ) {
-        pos--;
-        buf[pos] = digits[ (uint8_t) (bits & 0xf) ];
-        i++;
-        bits = bits >> 4;
-        if ( bits == 0 ) { break; }
-        }
-
-    /* if bits isn't 0, we ran out of space */
-    if ( bits ) {
-        for ( j=0; j < i; j++ ) {
-            buf[j] = '*';
-            }
-        return i;
-        }
-
-    /* pos now tells us how many leading blanks to insert or shift */
-
-    /* shift left so no leading blanks, including \0 */
-    for ( j=0; j <= i ; j++ ) {
-        buf[j] = buf[j+pos];
-        }
-
-    /* number of characters appended, not counting \0 */
-    return i;
-    }
-
-int32_t StrApHex32( char *buf, size_t bufsize, int32_t val )
+int32_t StrApHex( char *buf, size_t bufsize, uint32_t val )
 {
     static char* digits = "0123456789abcdef";
 
@@ -224,7 +158,7 @@ int32_t StrApHex32( char *buf, size_t bufsize, int32_t val )
 
     uint32_t bits = (uint32_t) val;
     int pos = bufsize > 8 ? 8 : bufsize-1;
-
+    
     /* fill in from rhs */
 
     buf[pos] = '\0';
@@ -239,6 +173,8 @@ int32_t StrApHex32( char *buf, size_t bufsize, int32_t val )
     /* number of characters appended, not counting \0 */
     return i;
     }
+
+
 
 int32_t StrApDec( char *buf, size_t bufsize, int32_t val )
 {
@@ -316,7 +252,7 @@ int32_t StrApDec( char *buf, size_t bufsize, int32_t val )
     }
 
 int32_t StrApFmtV( char *buf, size_t bufsize, 
-    const char * format, va_list ap )
+    const char * __restrict format, va_list ap )
 {
     int argNum;
 
@@ -361,12 +297,6 @@ int32_t StrApFmtV( char *buf, size_t bufsize,
                 fptr++;
                 argNum++;
                 }
-            else if ( cn == 'X' ) {
-                i_arg = va_arg( ap, int );
-                n += StrApHex32(buf+n, bufsize-n, i_arg);
-                fptr++;
-                argNum++;
-                }
             else if ( cn == 'c' ) {
                 i_arg = va_arg( ap, int );
                 n += StrApChar(buf+n, bufsize-n, (char) i_arg);
@@ -392,12 +322,11 @@ int32_t StrApFmtV( char *buf, size_t bufsize,
     }
 
 int32_t StrApFmt( char *buf, size_t bufsize, 
-    const char * format, ... )
+    const char * __restrict format, ... )
 {
     va_list ap;
-    va_start(ap, format);
-
     int n;
+    va_start(ap, format);
     n = StrApFmtV(buf, bufsize, format, ap);
     va_end(ap);
     return n;

@@ -72,6 +72,14 @@ Then select File / Rename.
 Copy the .hcg and .dil files to the new names.  In Halcogen open them
 up as the new project. Generate code, save project.
 
+IMPORTANT - the   
+    /* USER CODE BEGIN (43) */
+    /* USER CODE END */
+markers preserve your code, ONLY IF you have not changed a Halcogen
+configuation that would make the surrounding code disappear.  So you 
+need to make sure you checkin and branch before doing a new code 
+gen with Halcogen.  This way you can undo back to your erased code.
+
 ☻ Git and Halcogen notes.  Since Halcogen runs under Win10, it generates
 code with CR-LF end of line, and puts on spurious x permission.  This
 will cause git to detect spurious differences.  So after running and
@@ -159,6 +167,10 @@ is given by object number (1 is highest)
     CAN2
         Msg 1 Rx with hi prio interrupt, no rtr
         Msg 2 Tx with hi prio interrupt, no rtr
+
+☻ 2020-03-10 - You need to enable the hi and lo interrupt vectors, and
+then generate the service routine stubs using Halcogen if you actually 
+want to process interrupts.
 
 ☻ 2020-02-24 - command line build
 
@@ -295,6 +307,11 @@ set of undefined symbols:
 extras/bin/map-audit is a simple shell script that greps the .map file
 in Debug for symbols that indicate an undesirable feature is being used.
 
+☻ 2020-03-10 - code auditing in general
+
+- make sure *ISR version is used inside interrupt service routines
+- make sure %? in formats match number of arguments and their type
+
 ☻ 2020-02-25 - rebuilding libc
 
 See p 189 of spnu151r.pdf - the compiler manual.
@@ -327,3 +344,73 @@ Note that gmake is in something like:
 See various references:
 
 https://processors.wiki.ti.com/index.php/Mklib#What_about_users_who_don.27t_use_.22libc.a.22.2C_and_instead_refer_to_libraries_by_name_.28e.g._rts6200_eh.lib.29.3F
+
+☻ 2020-03-11 - Is varargs a problem in ISRs?
+
+New DebugSendFmt does not work inside an ISR, even though it is fine
+in a normal task.  Backing out to the Str routines and explicit buffer
+seems to work fine.
+
+CHECK ISR Stack size!  How do we guard against ISR stack overflow?
+
+Within tasks, per-task stack space is allocated from the heap, which 
+is of size:
+    configTOTAL_HEAP_SIZE
+in
+    ./include/FreeRTOSConfig.h:#define configTOTAL_HEAP_SIZE          ( ( size_t ) 8192 )
+Where is this set by Halcogen?
+
+ISR's use the actual ISR stack, to that has to be big enough to handle stack
+use inside an ISR.  That's probably why the debug in ISR was failing.
+
+User stack is only used inside main before the scehduler starts.
+
+Increased stack sizes from
+
+  userSp  .word 0x08000000+0x00000300                                           
+  svcSp   .word 0x08000000+0x00000300+0x00000100                                
+  fiqSp   .word 0x08000000+0x00000300+0x00000100+0x00000100                     
+  irqSp   .word 0x08000000+0x00000300+0x00000100+0x00000100+0x00000100          
+  abortSp .word 0x08000000+0x00000300+0x00000100+0x00000100+0x00000100+0x0000010
+  undefSp .word 0x08000000+0x00000300+0x00000100+0x00000100+0x00000100+0x0000010
+ 
+to 
+
+  userSp  .word 0x08000000+0x00001000                                           
+  svcSp   .word 0x08000000+0x00001000+0x00001000                                
+  fiqSp   .word 0x08000000+0x00001000+0x00001000+0x00000300                     
+  irqSp   .word 0x08000000+0x00001000+0x00001000+0x00000300+0x00001000          
+  abortSp .word 0x08000000+0x00001000+0x00001000+0x00000300+0x00001000+0x0000030
+  undefSp .word 0x08000000+0x00001000+0x00001000+0x00000300+0x00001000+0x0000030
+
+MEMORY CONFIGURATION
+
+         name            origin    length      used     unused   attr    fill
+----------------------  --------  ---------  --------  --------  ----  --------
+  VECTORS               00000000   00000020  00000020  00000000     X
+  KERNEL                00000020   00008000  000052c0  00002d40  R  X
+  FLASH0                00008020   001f7fe0  0000930c  001eecd4  R  X
+  FLASH1                00200000   00200000  00000000  00200000  R  X
+  STACKS                08000000   00003700  00000000  00003700  RW
+  KRAM                  08003700   00000800  00000104  000006fc  RW
+  RAM                   08003f00   0007c100  00002098  0007a068  RW
+
+
+☻ 2020-03-22 - stacks and memory protection units MPU
+
+https://www.freertos.org/FreeRTOS-MPU-memory-protection-unit.html
+
+portUSING_MPU_WRAPPERS
+
+☻ 2020-03-22 - stacks and memory
+
+https://www.freertos.org/FreeRTOS_Support_Forum_Archive/July_2007/freertos_Question_about_FreeRTOS_stack_usage_1784755.html
+
+Posted by richardbarry on July 25, 2007
+FreeRTOS.org only ever allocates memory when a task or queue is
+created. This always comes from the pvPortMalloc() function – which
+is equivalent to malloc when using heap_3, otherwise the heap as
+defined by the linker is not used. Take care about using library
+functions that call malloc as malloc is not generally reentrant. Also
+many GCC library functions use masses of stack.
+
